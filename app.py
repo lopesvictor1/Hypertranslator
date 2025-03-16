@@ -36,7 +36,7 @@ def get_image_url(query):
         return None
 
 # Function to add text to an image
-def add_text_to_image(image_url, text, font_size_factor=50):
+def add_text_to_image(image_url, text, font_size_factor=300):
     try:
         # Download the image
         response = requests.get(image_url)
