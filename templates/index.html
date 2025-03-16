@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HyperTranslator</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="logo">
+                <i class="fas fa-language"></i>
+                <h1>HyperTranslator</h1>
+            </div>
+            <p class="tagline">Translate through 30 languages and watch the transformation</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Search Card -->
+        <div class="card">
+            <div class="search-box">
+                <div class="search-container">
+                    <form id="translation-form">
+                        <input type="text" id="sentence" name="sentence" placeholder="Enter a sentence to translate" required>
+                        <button type="submit"><i class="fas fa-globe"></i> Translate</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading indicator -->
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Translating through 30 random languages...</p>
+            <div class="translation-progress">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+        </div>
+
+        <!-- Current Translation -->
+        <div class="current-translation" id="current-translation">
+            <span class="language-badge">Language: <span id="current-lang">English</span></span>
+            <div class="translation-text" id="current-text"></div>
+        </div>
+
+        <!-- Final Translation (PT-BR) -->
+        <div class="final-translation" id="final-translation">
+            <h3>Final Translation (PT-BR)</h3>
+            <p id="final-text"></p>
+        </div>
+
+        <!-- Image of the search result -->
+        <div class="image-container" id="image-container">
+            <img id="result-image" src="" alt="Image related to the sentence">
+        </div>
+
+        <!-- Translation History -->
+        <div class="translation-history" id="translation-history">
+            <h3>Translation Journey</h3>
+            <div class="history-list" id="history-list"></div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <div class="footer-content">
+                <div class="social-links">
+                    <a href="#"><i class="fab fa-twitter"></i></a>
+                    <a href="#"><i class="fab fa-facebook"></i></a>
+                    <a href="#"><i class="fab fa-instagram"></i></a>
+                    <a href="#"><i class="fab fa-github"></i></a>
+                </div>
+                <p class="copyright">HyperTranslator &copy; 2025. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        document.getElementById('translation-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Get the sentence
+            const sentence = document.getElementById('sentence').value;
+            if (!sentence) return;
+            
+            // Reset UI
+            document.getElementById('current-translation').style.display = 'block';
+            document.getElementById('final-translation').style.display = 'none';
+            document.getElementById('image-container').style.display = 'none';
+            document.getElementById('translation-history').style.display = 'block';
+            document.getElementById('history-list').innerHTML = '';
+            document.getElementById('loading').style.display = 'block';
+            
+            // Reset progress bar
+            document.getElementById('progress-bar').style.width = '0%';
+            
+            // Form data for the POST request
+            const formData = new FormData();
+            formData.append('sentence', sentence);
+            
+            // Make the POST request
+            fetch('/stream_translation', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                
+                let progressStep = 0;
+                const totalSteps = 32; // Original + 30 languages + PT-BR
+                
+                function read() {
+                    return reader.read().then(processText);
+                }
+                
+                function processText({ done, value }) {
+                    if (done) {
+                        document.getElementById('loading').style.display = 'none';
+                        return;
+                    }
+                    
+                    // Append decoded text to buffer
+                    buffer += decoder.decode(value, { stream: true });
+                    
+                    // Process complete events in buffer
+                    const events = buffer.split('\n\n');
+                    buffer = events.pop() || '';
+                    
+                    events.forEach(event => {
+                        if (event.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(event.slice(6));
+                                
+                                if (data.type === 'image') {
+                                    // Show the image
+                                    if (data.url) {
+                                        document.getElementById('result-image').src = data.url;
+                                        document.getElementById('image-container').style.display = 'block';
+                                    }
+                                } else if (data.type === 'translation') {
+                                    // Update the current translation
+                                    document.getElementById('current-lang').textContent = data.language;
+                                    document.getElementById('current-text').textContent = data.text;
+                                    
+                                    // Update the progress bar
+                                    progressStep++;
+                                    document.getElementById('progress-bar').style.width = `${(progressStep / totalSteps) * 100}%`;
+                                    
+                                    // Add to the translation history
+                                    const entry = document.createElement('div');
+                                    entry.className = 'translation-entry';
+                                    entry.innerHTML = `
+                                        <strong>${data.language}</strong>
+                                        <span>${data.text}</span>
+                                    `;
+                                    document.getElementById('history-list').appendChild(entry);
+                                    
+                                    // Scroll to bottom of history list
+                                    const historyList = document.getElementById('history-list');
+                                    historyList.scrollTop = historyList.scrollHeight;
+                                } else if (data.type === 'final') {
+                                    // Show the final translation
+                                    document.getElementById('final-text').textContent = data.text;
+                                    document.getElementById('final-translation').style.display = 'block';
+                                }
+                            } catch (error) {
+                                console.error('Error parsing SSE data:', error);
+                            }
+                        }
+                    });
+                    
+                    // Continue reading
+                    return read();
+                }
+                
+                // Start reading the stream
+                return read();
+            })
+            .catch(error => {
+                console.error('Fetch error:', error);
+                document.getElementById('loading').style.display = 'none';
+                alert('Error occurred during translation. Please try again.');
+            });
+        });
+    </script>
+</body>
+</html>
